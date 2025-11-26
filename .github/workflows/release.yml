@@ -1,0 +1,49 @@
+name: 构建并发布
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v6
+
+      - name: 安装 Rust 工具链
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: i686-pc-windows-msvc
+
+      - name: 缓存 Rust 依赖
+        uses: Swatinem/rust-cache@v2
+
+      - name: 编译 Payload
+        run: cargo build --package payload --release
+
+      - name: 编译 Installer
+        run: cargo build --package installer --release
+
+      - name: 准备产物
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path staging
+          $targetDir = "target/i686-pc-windows-msvc/release"
+          Copy-Item "$targetDir/installer.exe" -Destination "staging/"
+          Copy-Item "$targetDir/payload.dll" -Destination "staging/"
+
+      - name: 创建 Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          generate_release_notes: true
+          files: |
+            staging/installer.exe
+            staging/payload.dll

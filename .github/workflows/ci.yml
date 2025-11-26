@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  ci-checks:
+    runs-on: windows-latest
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v6
+
+      - name: 安装 Rust 工具链
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: i686-pc-windows-msvc
+          components: clippy
+
+      - name: 缓存 Rust 依赖
+        uses: Swatinem/rust-cache@v2
+
+      - name: 编译 Payload
+        run: cargo build --package payload
+
+      - name: 编译 Installer
+        run: cargo build --package installer
+
+      - name: 检查 Clippy
+        run: cargo clippy --workspace -- -D warnings
