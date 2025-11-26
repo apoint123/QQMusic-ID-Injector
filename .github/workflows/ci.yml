@@ -23,10 +23,10 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: 编译 Payload
-        run: cargo build --package payload
+        run: cargo build --package payload --release
 
       - name: 编译 Installer
-        run: cargo build --package installer
+        run: cargo build --package installer --release
 
       - name: 检查 Clippy
         run: cargo clippy --workspace -- -D warnings
