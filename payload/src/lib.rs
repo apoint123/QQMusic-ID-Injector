@@ -117,7 +117,7 @@ union StringData {
 }
 
 #[repr(C)]
-pub struct MsStdString {
+struct MsStdString {
     data: StringData,
     len: usize,
     cap: usize,
@@ -131,7 +131,7 @@ impl std::fmt::Debug for MsStdString {
 
 impl MsStdString {
     #[must_use]
-    pub fn to_string_lossy(&self) -> String {
+    fn to_string_lossy(&self) -> String {
         unsafe {
             // 短字符串 (SSO) 优化
             let bytes = if self.cap < 16 {
@@ -152,16 +152,16 @@ impl MsStdString {
 
 #[repr(C)]
 #[derive(Debug)]
-pub struct CurrentSongInfo {
-    pub name: MsStdString,                // 0x00
-    pub artist: MsStdString,              // 0x18
-    pub album: MsStdString,               // 0x30
-    pub album_thumbnail_url: MsStdString, // 0x48
-    pub id: u32,                          // 0x60
-    _pad_64: [u8; 4],                     // 0x64 (padding)
-    pub duration: u32,                    // 0x68
-    pub schedule: u32,                    // 0x6C
-    pub play_status: u32,                 // 0x70
+struct CurrentSongInfo {
+    name: MsStdString,                // 0x00
+    artist: MsStdString,              // 0x18
+    album: MsStdString,               // 0x30
+    album_thumbnail_url: MsStdString, // 0x48
+    id: u32,                          // 0x60
+    _pad_64: [u8; 4],                 // 0x64 (padding)
+    duration: u32,                    // 0x68
+    schedule: u32,                    // 0x6C
+    play_status: u32,                 // 0x70
 } // Size: 0x74
 
 const _: () = {
