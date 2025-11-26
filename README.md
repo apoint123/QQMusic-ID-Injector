@@ -31,13 +31,13 @@
 
 ### 构建步骤
 
-    ```bash
-    git clone https://github.com/apoint123/QQMusic-ID-Injector.git
-    cd QQMusic-ID-Injector
-    rustup target add i686-pc-windows-msvc  # 因为 QQ 音乐是 32 位的
-    cargo build --package payload --release
-    cargo build --package installer --release
-    ```
+```bash
+git clone https://github.com/apoint123/QQMusic-ID-Injector.git
+cd QQMusic-ID-Injector
+rustup target add i686-pc-windows-msvc  # 因为 QQ 音乐是 32 位的
+cargo build --package payload --release
+cargo build --package installer --release
+```
 
 ## 免责声明
 
