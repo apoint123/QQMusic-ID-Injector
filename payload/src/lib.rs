@@ -9,7 +9,10 @@ use tracing::{debug, error, info, warn};
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 
 use windows::{
-    Media::{MusicDisplayProperties, SystemMediaTransportControls},
+    Media::{
+        ISystemMediaTransportControlsDisplayUpdater_Vtbl, MusicDisplayProperties,
+        SystemMediaTransportControls,
+    },
     Win32::{
         Foundation::{E_FAIL, FALSE, HINSTANCE, HWND, LPARAM, MAX_PATH, TRUE},
         Graphics::Gdi::{BLENDFUNCTION, HDC},
@@ -384,13 +387,15 @@ unsafe fn install_hook() -> Result<()> {
         return Err(Error::from(E_FAIL));
     }
 
-    let vtable_ptr = unsafe { *raw_ptr.cast::<*mut usize>() };
+    let vtable_ptr =
+        unsafe { *raw_ptr.cast::<*const ISystemMediaTransportControlsDisplayUpdater_Vtbl>() };
+
     if vtable_ptr.is_null() {
         error!("DisplayUpdater VTable 指针为空");
         return Err(Error::from(E_FAIL));
     }
 
-    let update_method_addr = unsafe { *vtable_ptr.add(17) } as *mut c_void;
+    let update_method_addr = unsafe { (*vtable_ptr).Update } as *mut c_void;
 
     info!(addr = ?update_method_addr, "获取到 Update 方法地址");
 
@@ -474,35 +479,24 @@ unsafe extern "system" fn detour_update(this: *mut c_void) -> HRESULT {
 }
 
 unsafe fn get_music_properties_from_vtable(this: *mut c_void) -> Option<MusicDisplayProperties> {
-    type MusicPropertiesFn = unsafe extern "system" fn(*mut c_void, *mut *mut c_void) -> HRESULT;
-
     if this.is_null() {
         error!("get_music_properties_from_vtable this 指针为空");
         return None;
     }
 
-    let index = 12; // MusicProperties 索引
-    let vtable_ptr_ptr = this.cast::<*mut usize>();
+    let vtable_ptr_ptr = this.cast::<*const ISystemMediaTransportControlsDisplayUpdater_Vtbl>();
+    let vtable_ptr = unsafe { *vtable_ptr_ptr };
 
-    let vtable = unsafe { *vtable_ptr_ptr };
-    if vtable.is_null() {
+    if vtable_ptr.is_null() {
         error!("Update 对象 VTable 指针为空");
         return None;
     }
 
-    let method_ptr_addr = unsafe { vtable.add(index) };
-    let method_ptr = unsafe { *method_ptr_addr } as *mut c_void;
-
-    if method_ptr.is_null() {
-        error!(index = index, "VTable 指定索引处的方法指针为空");
-        return None;
-    }
-
-    let method: MusicPropertiesFn = unsafe { std::mem::transmute(method_ptr) };
-
     let mut result_ptr: *mut c_void = std::ptr::null_mut();
 
-    match unsafe { method(this, &raw mut result_ptr) }.ok() {
+    let hr = unsafe { ((*vtable_ptr).MusicProperties)(this, &raw mut result_ptr) };
+
+    match hr.ok() {
         Ok(()) if !result_ptr.is_null() => {
             Some(unsafe { MusicDisplayProperties::from_raw(result_ptr) })
         }
