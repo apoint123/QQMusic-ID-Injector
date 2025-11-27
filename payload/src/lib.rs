@@ -96,7 +96,7 @@ where
         uint32_t m_nSongId;                // 0x60
         private: char pad_64[0x4]; public:
         uint32_t m_nSongDuration;          // 0x68
-        uint32_t m_nSongSchedule;          // 0x6c
+        uint32_t m_nSongProgress;          // 0x6c
         uint32_t m_nPlayStatus;            // 0x70
     }; // Size: 0x74
 */
@@ -163,7 +163,7 @@ struct CurrentSongInfo {
     id: u32,                          // 0x60
     _pad_64: [u8; 4],                 // 0x64 (padding)
     duration: u32,                    // 0x68
-    schedule: u32,                    // 0x6C
+    progress: u32,                    // 0x6C
     play_status: u32,                 // 0x70
 } // Size: 0x74
 
