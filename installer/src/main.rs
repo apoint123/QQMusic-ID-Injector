@@ -1,5 +1,7 @@
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+
+use anyhow::{Context, Result};
 use winreg::RegKey;
 use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
 
@@ -8,7 +10,7 @@ const PAYLOAD_BYTES: &[u8] =
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<()> {
     loop {
         print!("\x1B[2J\x1B[1;1H");
 
@@ -41,10 +43,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 match get_valid_qq_path() {
                     Ok(path) => {
                         if let Err(e) = install_plugin(&path) {
-                            println!("\n❌ 安装失败: {e}");
+                            println!("\n❌ 安装失败: {e:#}");
                         }
                     }
-                    Err(e) => println!("\n❌ 操作取消: {e}"),
+                    Err(e) => println!("\n❌ 操作取消: {e:#}"),
                 }
                 pause();
             }
@@ -53,7 +55,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Ok(path) => {
                         uninstall_plugin(&path);
                     }
-                    Err(e) => println!("\n❌ 操作取消: {e}"),
+                    Err(e) => println!("\n❌ 操作取消: {e:#}"),
                 }
                 pause();
             }
@@ -65,7 +67,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn get_valid_qq_path() -> Result<PathBuf, Box<dyn std::error::Error>> {
+fn get_valid_qq_path() -> Result<PathBuf> {
     if let Some(path) = find_qq_music_path() {
         return Ok(path);
     }
@@ -105,11 +107,12 @@ fn get_valid_qq_path() -> Result<PathBuf, Box<dyn std::error::Error>> {
     }
 }
 
-fn install_plugin(qq_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+fn install_plugin(qq_path: &Path) -> Result<()> {
     let target_dll = qq_path.join("msimg32.dll");
 
     println!("正在写入插件...");
-    std::fs::write(&target_dll, PAYLOAD_BYTES)?;
+    std::fs::write(&target_dll, PAYLOAD_BYTES)
+        .with_context(|| format!("无法写入目标 DLL 文件: {}", target_dll.display()))?;
 
     println!("安装成功！请重新启动 QQ 音乐以生效");
     Ok(())
