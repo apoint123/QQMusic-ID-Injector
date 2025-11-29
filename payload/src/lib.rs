@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use std::{panic, thread};
 
 use minhook::MinHook;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 
 use windows::{
@@ -248,7 +248,7 @@ unsafe fn init_sys_funcs() -> SysFuncs {
                 if let Err(e) = std::fs::remove_file(&path) {
                     warn!(path = ?path, "清理旧的临时 DLL 失败: {e}");
                 } else {
-                    debug!(path = ?path, "已清理旧的临时 DLL");
+                    info!(path = ?path, "已清理旧的临时 DLL");
                 }
             }
         }
@@ -425,42 +425,53 @@ unsafe extern "system" fn detour_update(this: *mut c_void) -> HRESULT {
         let _ = (|| -> Result<()> {
             let struct_addr = STATE.song_struct_addr.load(Ordering::Relaxed);
 
-            if struct_addr != 0 {
+            if struct_addr == 0 {
+                info!("内存特征码尚未定位，跳过本次 Update");
+                return Ok(());
+            }
+
+            let read_result = try_seh(|| {
                 let song_info = unsafe { &*(struct_addr as *const CurrentSongInfo) };
 
-                let id = song_info.id;
-                let name = song_info.name.to_string_lossy();
-                let artist = song_info.artist.to_string_lossy();
-                let album = song_info.album.to_string_lossy();
+                (
+                    song_info.id,
+                    song_info.name.to_string_lossy(),
+                    song_info.artist.to_string_lossy(),
+                    song_info.album.to_string_lossy(),
+                )
+            });
 
-                if let Some(props) = unsafe { get_music_properties_from_vtable(this) } {
-                    let genres = props.Genres()?;
+            let (id, name, _artist, _album) = match read_result {
+                Ok(data) => data,
+                Err(code) => {
+                    error!("捕获到异常 (0x{code:X})，特征码可能已失效");
 
-                    genres.Clear()?;
+                    STATE.song_struct_addr.store(0, Ordering::Relaxed);
 
-                    // 本地音乐的 ID 为 0
-                    if id != 0 {
-                        let formatted_id = format!("QQ-{id}");
-                        genres.Append(&HSTRING::from(&formatted_id))?;
-                        info!(
-                            song.id = %formatted_id,
-                            song.name = %name,
-                            song.artist = %artist,
-                            song.album = %album,
-                            "写入流派字段"
-                        );
-                    } else {
-                        info!(
-                            song.id = id,
-                            song.name = %name,
-                            "ID 为 0, 跳过写入"
-                        );
-                    }
-                } else {
-                    warn!("无法从 VTable 获取 MusicDisplayProperties");
+                    return Ok(());
                 }
+            };
+
+            // 本地音乐的 ID 为 0
+            if id == 0 {
+                info!(
+                    song.id = id,
+                    song.name = %name,
+                    "ID 为 0, 跳过写入 (本地歌曲则为预期)"
+                );
+                return Ok(());
+            }
+
+            if let Some(props) = unsafe { get_music_properties_from_vtable(this) } {
+                let genres = props.Genres()?;
+                genres.Clear()?;
+
+                let formatted_id = format!("QQ-{id}");
+                genres.Append(&HSTRING::from(&formatted_id))?;
+
+                info!(song.id = %formatted_id, song.name = %name, "写入流派字段");
             } else {
-                info!("内存特征码尚未定位，跳过本次 Update");
+                warn!("无法从 VTable 获取 MusicDisplayProperties");
             }
             Ok(())
         })();
@@ -484,28 +495,42 @@ unsafe fn get_music_properties_from_vtable(this: *mut c_void) -> Option<MusicDis
         return None;
     }
 
-    let vtable_ptr_ptr = this.cast::<*const ISystemMediaTransportControlsDisplayUpdater_Vtbl>();
-    let vtable_ptr = unsafe { *vtable_ptr_ptr };
+    let seh_result = try_seh(|| {
+        let vtable_ptr_ptr = this.cast::<*const ISystemMediaTransportControlsDisplayUpdater_Vtbl>();
+        let vtable_ptr = unsafe { *vtable_ptr_ptr };
 
-    if vtable_ptr.is_null() {
-        error!("Update 对象 VTable 指针为空");
-        return None;
-    }
-
-    let mut result_ptr: *mut c_void = std::ptr::null_mut();
-
-    let hr = unsafe { ((*vtable_ptr).MusicProperties)(this, &raw mut result_ptr) };
-
-    match hr.ok() {
-        Ok(()) if !result_ptr.is_null() => {
-            Some(unsafe { MusicDisplayProperties::from_raw(result_ptr) })
+        if vtable_ptr.is_null() {
+            error!("Update 对象 VTable 指针为空");
+            return Err(E_FAIL);
         }
-        Ok(()) => {
-            warn!("MusicProperties 方法调用成功 (S_OK)，但返回了空对象");
+
+        let mut result_ptr: *mut c_void = std::ptr::null_mut();
+
+        let hr = unsafe { ((*vtable_ptr).MusicProperties)(this, &raw mut result_ptr) };
+
+        Ok((hr, result_ptr))
+    });
+
+    match seh_result {
+        Ok(Ok((hr, result_ptr))) => match hr.ok() {
+            Ok(()) if !result_ptr.is_null() => {
+                Some(unsafe { MusicDisplayProperties::from_raw(result_ptr) })
+            }
+            Ok(()) => {
+                warn!("MusicProperties 方法调用成功，但返回了空对象");
+                None
+            }
+            Err(e) => {
+                warn!("调用 MusicProperties 方法失败: {e}");
+                None
+            }
+        },
+        Ok(Err(_)) => {
+            // vtable_ptr 是空指针
             None
         }
-        Err(e) => {
-            warn!("调用 MusicProperties 方法失败: {e}");
+        Err(code) => {
+            warn!("调用 MusicProperties 时捕获到异常 (0x{code:X})");
             None
         }
     }
@@ -673,6 +698,43 @@ unsafe fn log_host_version() {
         warn!("无法读取文件版本信息");
     }
 }
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+unsafe extern "C" {
+    unsafe fn ExecuteWithSEH(
+        callback: unsafe extern "C" fn(*mut c_void),
+        context: *mut c_void,
+    ) -> u32;
+}
+
+unsafe extern "C" fn trampoline<F>(context: *mut c_void)
+where
+    F: FnMut(),
+{
+    let closure = unsafe { &mut *context.cast::<F>() };
+    closure();
+}
+
+fn try_seh<F, R>(mut func: F) -> std::result::Result<R, u32>
+where
+    F: FnMut() -> R,
+{
+    unsafe fn run_seh_impl<W: FnMut()>(mut wrapper: W) -> std::result::Result<(), u32> {
+        let context = std::ptr::addr_of_mut!(wrapper).cast::<c_void>();
+        let code = unsafe { ExecuteWithSEH(trampoline::<W>, context) };
+        if code == 0 { Ok(()) } else { Err(code) }
+    }
+
+    let mut result: Option<R> = None;
+    let wrapper = || {
+        result = Some(func());
+    };
+
+    unsafe { run_seh_impl(wrapper).map(|()| result.unwrap()) }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
 
 type AlphaBlendFn = unsafe extern "system" fn(
     HDC,
