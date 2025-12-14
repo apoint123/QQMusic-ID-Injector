@@ -82,9 +82,9 @@ checksum = "34080505efa8e45a4b816c349525ebe327ceaa8559756f0356cba97ef3bf7432"
 
 [[package]]
 name = "minhook"
-version = "0.8.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "700049cd178d9f1a32373e99563b87ceffdbe0bf657871ba80cbe2c3cd64d074"
+checksum = "455e088cb1600ffa5f1524c9702c9eeb0ba3604e0f4932efa165b99973272a8d"
 dependencies = [
  "cc",
  "tracing",
